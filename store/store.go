@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -33,6 +34,12 @@ type fsm struct {
 
 type fsmSnapshot struct {
 	data []byte
+}
+
+type Command struct {
+	Action string
+	Key    string
+	Value  string
 }
 
 var log hclog.Logger = hclog.Default()
@@ -179,15 +186,33 @@ func (cfg *Config) Middleware(h http.Handler) http.Handler {
 }
 
 func (cfg *Config) Get(ctx context.Context, key string) (string, error) {
-	return "", nil
+	return cfg.fsm.localGet(ctx, key)
 }
 
 func (cfg *Config) Delete(ctx context.Context, key string) error {
-	return nil
+	if cfg.raft.State() != raft.Leader {
+		return fmt.Errorf("not leader")
+	}
+
+	cmd, err := json.Marshal(Command{Action: "delete", Key: key})
+	if err != nil {
+		return fmt.Errorf("marshaling command: %w", err)
+	}
+	l := cfg.raft.Apply(cmd, time.Minute)
+	return l.Error()
 }
 
 func (cfg *Config) Set(ctx context.Context, key, value string) error {
-	return nil
+	if cfg.raft.State() != raft.Leader {
+		return fmt.Errorf("not leader")
+	}
+
+	cmd, err := json.Marshal(Command{Action: "set", Key: key, Value: value})
+	if err != nil {
+		return fmt.Errorf("marshaling command: %w", err)
+	}
+	l := cfg.raft.Apply(cmd, time.Minute)
+	return l.Error()
 }
 
 func (f *fsm) Apply(l *raft.Log) interface{} {
@@ -374,4 +399,12 @@ func decode(data []byte) (map[string]string, error) {
 		returnData[string(dk)] = string(dv)
 	}
 	return returnData, nil
+}
+
+func RaftAddressToHTTP(sUrl raft.ServerAddress) *url.URL {
+	rUrl, err := url.Parse(string(sUrl))
+	if err != nil {
+		return nil
+	}
+	return rUrl
 }
