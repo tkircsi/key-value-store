@@ -66,7 +66,6 @@ func NewRaftSetup(storagePath, host, raftPort, raftLeader string) (*Config, erro
 	cfg.fsm = &fsm{
 		dataFile: fmt.Sprintf("%s/data.json", storagePath),
 	}
-	cfg.fsm.dataFile = fmt.Sprintf("%s/data.json", storagePath)
 
 	ss, err := raftbolt.NewBoltStore(storagePath + "/stable")
 	if err != nil {
@@ -93,7 +92,7 @@ func NewRaftSetup(storagePath, host, raftPort, raftLeader string) (*Config, erro
 	if err != nil {
 		return nil, fmt.Errorf("building transpot: %w", err)
 	}
-
+	fmt.Printf("Transport: %v\n", trans.LocalAddr())
 	raftSettings := raft.DefaultConfig()
 	raftSettings.LocalID = raft.ServerID(uuid.New().URN())
 
@@ -117,6 +116,7 @@ func NewRaftSetup(storagePath, host, raftPort, raftLeader string) (*Config, erro
 				{
 					ID:      raftSettings.LocalID,
 					Address: raft.ServerAddress(fullTarget),
+					//Address: trans.LocalAddr(),
 				},
 			},
 		}
@@ -147,7 +147,7 @@ func NewRaftSetup(storagePath, host, raftPort, raftLeader string) (*Config, erro
 			"application/json; charset=utf-8",
 			strings.NewReader(postJSON))
 		if err != nil {
-			return nil, fmt.Errorf("failed adding self to leader %q: %q", raftLeader, err)
+			return nil, fmt.Errorf("failed adding self to leader %q: %w", raftLeader, err)
 		}
 		log.Debug("added selft to leader", "leader", raftLeader, "response", resp)
 	}
@@ -305,6 +305,16 @@ func (f *fsm) localDelete(ctx context.Context, key string) error {
 
 func (f *fsm) loadData(ctx context.Context) (map[string]string, error) {
 	empty := map[string]string{}
+	if _, err := os.Stat(f.dataFile); os.IsNotExist(err) {
+		emptyData, err := encode(map[string]string{})
+		if err != nil {
+			return empty, fmt.Errorf("encode: %w", err)
+		}
+		if err := os.WriteFile(f.dataFile, emptyData, 0644); err != nil {
+			return empty, fmt.Errorf("read file: %w", err)
+		}
+	}
+
 	if f.lock == nil {
 		f.lock = flock.New(f.dataFile)
 	}
@@ -316,16 +326,6 @@ func (f *fsm) loadData(ctx context.Context) (map[string]string, error) {
 	}
 
 	if locked {
-		if _, err := os.Stat(f.dataFile); os.IsNotExist(err) {
-			emptyData, err := encode(map[string]string{})
-			if err != nil {
-				return empty, fmt.Errorf("encode: %w", err)
-			}
-
-			if err := os.WriteFile(f.dataFile, emptyData, 0644); err != nil {
-				return empty, fmt.Errorf("read file: %w", err)
-			}
-		}
 
 		content, err := os.ReadFile(f.dataFile)
 		if err != nil {
@@ -360,7 +360,6 @@ func (f *fsm) saveData(ctx context.Context, data map[string]string) error {
 		if err := os.WriteFile(f.dataFile, encodedData, 0644); err != nil {
 			return err
 		}
-
 		if err := f.lock.Unlock(); err != nil {
 			return err
 		}
@@ -396,18 +395,19 @@ func decode(data []byte) (map[string]string, error) {
 	var jsonData map[string]string
 
 	if err := json.Unmarshal(data, &jsonData); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode %q: %w", data, err)
 	}
 
 	returnData := map[string]string{}
 	for k, v := range jsonData {
 		dk, err := base64.URLEncoding.DecodeString(k)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("key decode: %w", err)
 		}
+
 		dv, err := base64.URLEncoding.DecodeString(v)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("value decode: %w", err)
 		}
 		returnData[string(dk)] = string(dv)
 	}

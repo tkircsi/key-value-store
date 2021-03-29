@@ -34,7 +34,7 @@ var (
 	app         = appConfig{
 		port:        "8080",
 		storagePath: StoragePath,
-		raftAddress: "",
+		raftAddress: "localhost",
 		raftPort:    "8081",
 		raftLeader:  "",
 	}
