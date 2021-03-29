@@ -32,10 +32,10 @@ var (
 	StoragePath = DefaultStoragePath
 	log         = hclog.Default()
 	app         = appConfig{
-		port:        "5000",
+		port:        "8080",
 		storagePath: StoragePath,
-		raftAddress: "localhost",
-		raftPort:    "5001",
+		raftAddress: "",
+		raftPort:    "8081",
 		raftLeader:  "",
 	}
 )

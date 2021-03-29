@@ -12,6 +12,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -45,6 +46,17 @@ type Command struct {
 var log hclog.Logger = hclog.Default()
 
 func NewRaftSetup(storagePath, host, raftPort, raftLeader string) (*Config, error) {
+	fmt.Println(
+		"NewRaftSetup",
+		"storagePath:",
+		storagePath,
+		"host:",
+		host,
+		"raftPort:",
+		raftPort,
+		"raftLeader:",
+		raftLeader,
+	)
 	cfg := &Config{}
 
 	if err := os.MkdirAll(storagePath, os.ModePerm); err != nil {
@@ -73,6 +85,7 @@ func NewRaftSetup(storagePath, host, raftPort, raftLeader string) (*Config, erro
 
 	fullTarget := fmt.Sprintf("%s:%s", host, raftPort)
 	addr, err := net.ResolveTCPAddr("tcp", fullTarget)
+	fmt.Printf("ResolveTCPAddr: %v\n", addr)
 	if err != nil {
 		return nil, fmt.Errorf("getting address: %w", err)
 	}
@@ -401,10 +414,21 @@ func decode(data []byte) (map[string]string, error) {
 	return returnData, nil
 }
 
-func RaftAddressToHTTP(sUrl raft.ServerAddress) *url.URL {
-	rUrl, err := url.Parse(string(sUrl))
+func RaftAddressToHTTP(s raft.ServerAddress) *url.URL {
+	base := fmt.Sprintf("http://%s/", s)
+	u, err := url.Parse(base)
 	if err != nil {
-		return nil
+		log.Error("could not parse leader address", "error", err)
+		return u
 	}
-	return rUrl
+
+	port, err := strconv.Atoi(u.Port())
+	if err != nil {
+		log.Error("could not parse leader port", "error", err)
+		return u
+	}
+
+	u.Host = strings.Replace(u.Host, u.Port(), strconv.Itoa(port-1), 1)
+
+	return u
 }
